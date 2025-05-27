@@ -1,0 +1,191 @@
+<!DOCTYPE HTML>
+<HTML>
+  <head>
+    <title>1</title>
+  </head>
+  <body>
+    <script>
+      class BeepBoxMod {
+    constructor(audioContext) {
+        this.audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+        this.masterGain = this.audioContext.createGain();
+        this.masterGain.connect(this.audioContext.destination);
+        this.masterGain.gain.value = 0.3;
+        
+        this.oscillators = new Map();
+        this.effects = {
+            delay: this.createDelay(),
+            reverb: this.createReverb(),
+            filter: this.createFilter()
+        };
+    }
+    
+    createDelay() {
+        const delay = this.audioContext.createDelay(1.0);
+        const feedback = this.audioContext.createGain();
+        const wetGain = this.audioContext.createGain();
+        
+        delay.delayTime.value = 0.3;
+        feedback.gain.value = 0.4;
+        wetGain.gain.value = 0.2;
+        
+        delay.connect(feedback);
+        feedback.connect(delay);
+        delay.connect(wetGain);
+        
+        return { delay, feedback, wetGain, input: delay, output: wetGain };
+    }
+    
+    createReverb() {
+        const convolver = this.audioContext.createConvolver();
+        const wetGain = this.audioContext.createGain();
+        wetGain.gain.value = 0.3;
+        
+        // Create impulse response for reverb
+        const length = this.audioContext.sampleRate * 2;
+        const impulse = this.audioContext.createBuffer(2, length, this.audioContext.sampleRate);
+        
+        for (let channel = 0; channel < 2; channel++) {
+            const channelData = impulse.getChannelData(channel);
+            for (let i = 0; i < length; i++) {
+                channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
+            }
+        }
+        
+        convolver.buffer = impulse;
+        convolver.connect(wetGain);
+        
+        return { convolver, wetGain, input: convolver, output: wetGain };
+    }
+    
+    createFilter() {
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 800;
+        filter.Q.value = 1;
+        
+        return { filter, input: filter, output: filter };
+    }
+    
+    playNote(frequency, duration = 1, waveType = 'square', effects = []) {
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+        
+        oscillator.type = waveType;
+        oscillator.frequency.value = frequency;
+        
+        // ADSR envelope
+        const now = this.audioContext.currentTime;
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(0.8, now + 0.01); // Attack
+        gainNode.gain.exponentialRampToValueAtTime(0.6, now + 0.1); // Decay
+        gainNode.gain.setValueAtTime(0.6, now + duration - 0.1); // Sustain
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration); // Release
+        
+        oscillator.connect(gainNode);
+        
+        // Apply effects chain
+        let currentNode = gainNode;
+        effects.forEach(effectName => {
+            if (this.effects[effectName]) {
+                currentNode.connect(this.effects[effectName].input);
+                currentNode = this.effects[effectName].output;
+            }
+        });
+        
+        currentNode.connect(this.masterGain);
+        
+        oscillator.start(now);
+        oscillator.stop(now + duration);
+        
+        const noteId = Date.now() + Math.random();
+        this.oscillators.set(noteId, { oscillator, gainNode });
+        
+        oscillator.onended = () => {
+            this.oscillators.delete(noteId);
+        };
+        
+        return noteId;
+    }
+    
+    playChord(frequencies, duration = 1, waveType = 'square', effects = []) {
+        return frequencies.map(freq => this.playNote(freq, duration, waveType, effects));
+    }
+    
+    playMelody(notes, tempo = 120) {
+        const beatDuration = 60 / tempo;
+        let currentTime = 0;
+        
+        notes.forEach(note => {
+            setTimeout(() => {
+                if (Array.isArray(note.frequency)) {
+                    this.playChord(note.frequency, note.duration * beatDuration, note.waveType, note.effects);
+                } else {
+                    this.playNote(note.frequency, note.duration * beatDuration, note.waveType, note.effects);
+                }
+            }, currentTime * 1000);
+            
+            currentTime += note.duration * beatDuration;
+        });
+    }
+    
+    setMasterVolume(volume) {
+        this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+    }
+    
+    setEffectParameter(effectName, parameter, value) {
+        const effect = this.effects[effectName];
+        if (!effect) return;
+        
+        switch (effectName) {
+            case 'delay':
+                if (parameter === 'time') effect.delay.delayTime.value = value;
+                if (parameter === 'feedback') effect.feedback.gain.value = value;
+                if (parameter === 'wet') effect.wetGain.gain.value = value;
+                break;
+            case 'reverb':
+                if (parameter === 'wet') effect.wetGain.gain.value = value;
+                break;
+            case 'filter':
+                if (parameter === 'frequency') effect.filter.frequency.value = value;
+                if (parameter === 'Q') effect.filter.Q.value = value;
+                break;
+        }
+    }
+    
+    stopAll() {
+        this.oscillators.forEach(({ oscillator }) => {
+            try {
+                oscillator.stop();
+            } catch (e) {
+                // Oscillator might already be stopped
+            }
+        });
+        this.oscillators.clear();
+    }
+}
+
+// Note frequency helper
+const Notes = {
+    C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+    C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00, B5: 987.77
+};
+
+// Example usage
+const mod = new BeepBoxMod();
+
+// Play a simple melody
+const melody = [
+    { frequency: Notes.C4, duration: 0.5, waveType: 'square', effects: ['filter'] },
+    { frequency: Notes.E4, duration: 0.5, waveType: 'square', effects: ['filter'] },
+    { frequency: Notes.G4, duration: 0.5, waveType: 'square', effects: ['filter', 'delay'] },
+    { frequency: Notes.C5, duration: 1, waveType: 'square', effects: ['filter', 'delay', 'reverb'] }
+];
+
+// Uncomment to play:
+// mod.playMelody(melody, 120);
+
+
+    </script>
+  </body>
+</HTML>
