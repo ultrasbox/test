@@ -2,11 +2,27 @@
 <html>
 <head>
 <meta charset=”UTF-8″>
-<title>ヒマラヤ</title>
+<title>omg</title>
+  <style>
+    /* コンソール用のスタイル */
+    .console-container {
+      width: 100%;
+      height: 200px;
+      border: 1px solid #ccc;
+      background-color: #f9f9f9;
+      overflow-y: scroll;
+      padding: 5px;
+      box-sizing: border-box;
+    }
+  </style>
 </head>
 <body>
 <h1>初心者向けHTMLの書き方</h1>
 <p>基本が大事</p>
+<div id="my-console" class="console-container">
+    <!-- ここにコンソール出力が表示される -->
+  </div>
+<script src="tiny-console.js"></script>
 <script>
   console.log("a");
 </script>
